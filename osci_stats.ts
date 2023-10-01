@@ -1,17 +1,13 @@
-import { load } from "https://deno.land/std@0.202.0/dotenv/mod.ts";
+import { TOKEN, GITHUB_API_URL } from "./github.ts";
 
-const env = await load();
-const GITHUB_API_URL = "https://api.github.com";
-const TOKEN = env["TOKEN"]
-
-async function getReposOfOwner(owner) {
+async function getReposOfOwner(owner: string) {
   const headers = new Headers({
     Authorization: `token ${TOKEN}`,
     Accept: "application/vnd.github.v3+json",
   });
 
   let page = 1;
-  let repos = [];
+  let repos: any[] = [];
   let hasNextPage = true;
   while (hasNextPage) {
     const reposResponse = await fetch(
@@ -30,10 +26,10 @@ async function getReposOfOwner(owner) {
   return repos.map((repo) => repo.full_name);
 }
 
-async function countContributorActivityForRepo(
-  contributor,
+async function getContributorActivityForRepo(
   repository: string,
-  startDate
+  startDate: string,
+  contributors: string[]
 ) {
   const headers = new Headers({
     Authorization: `token ${TOKEN}`,
@@ -43,12 +39,12 @@ async function countContributorActivityForRepo(
   const sinceParam = startDate ? `&since=${startDate}` : "";
 
   let page = 1;
-  let issues = [];
+  let issues: any = [];
   let hasNextPage = true;
 
   while (hasNextPage) {
     const issuesResponse = await fetch(
-      `${GITHUB_API_URL}/repos/${repository}/issues?state=all&creator=${contributor}${sinceParam}&page=${page}&per_page=100`,
+      `${GITHUB_API_URL}/repos/${repository}/issues?state=all${sinceParam}&page=${page}&per_page=100`,
       { headers }
     ).then((res) => res.json());
     issues = issues.concat(issuesResponse);
@@ -56,8 +52,15 @@ async function countContributorActivityForRepo(
     page++;
   }
 
-  const { prsOpened, prsMerged, issuesOpened } = issues.reduce(
-    (acc, curr) => {
+  const filteredIssues = issues.filter((issue: any) =>
+    contributors.includes(issue.user.login)
+  );
+
+  const { prsOpened, prsMerged, issuesOpened } = filteredIssues.reduce(
+    (
+      acc: { prsOpened: number; prsMerged: number; issuesOpened: number },
+      curr: any
+    ) => {
       if (curr.pull_request) {
         acc.prsOpened++;
         if (curr.pull_request.merged_at) {
@@ -66,8 +69,6 @@ async function countContributorActivityForRepo(
       } else {
         acc.issuesOpened++;
       }
-
-      debugger;
       return acc;
     },
     { prsOpened: 0, prsMerged: 0, issuesOpened: 0 }
@@ -76,21 +77,23 @@ async function countContributorActivityForRepo(
   return { repository, prsOpened, prsMerged, issuesOpened };
 }
 
-async function main(owner, startDate) {
+async function main(owner = "opensearch-project", startDate = "2023-09-19") {
   const contributors = (await Deno.readTextFile("contributors.txt"))
     .split("\n")
     .filter(Boolean);
   const repositories = await getReposOfOwner(owner);
 
-  const promises = contributors.flatMap((contributor) =>
-    repositories.map((repo) =>
-      countContributorActivityForRepo(contributor, repo, startDate)
-    )
+  const promises = repositories.map((repo) =>
+    getContributorActivityForRepo(repo, startDate, contributors)
   );
   const results = await Promise.all(promises);
-  debugger;
+  // Filter out repositories with no activity
+  const filteredResults = results.filter(
+    (result) => result.prsOpened > 0 || result.issuesOpened > 0
+  );
 
-  const aggregated = results.reduce((acc, curr) => {
+  // Aggregate results by repository (array to object)
+  const aggregated = filteredResults.reduce((acc: any, curr: any) => {
     if (!acc[curr.repository]) {
       acc[curr.repository] = { prsOpened: 0, prsMerged: 0, issuesOpened: 0 };
     }
@@ -115,12 +118,6 @@ async function main(owner, startDate) {
 }
 
 const owner = "opensearch-project";
-const startDate = "2023-09-25"; // Format: 'YYYY-MM-DD'
-// const startDate = Deno.args[0]; // Format: 'YYYY-MM-DD'
-
-if (!owner) {
-  console.error("Please provide the GitHub owner as the first argument.");
-  Deno.exit(1);
-}
+const startDate = Deno.args[0]; // Format: 'YYYY-MM-DD'
 
 main(owner, startDate);
