@@ -9,15 +9,20 @@ export const GITHUB_API_URL = "https://api.github.com";
 export const TOKEN = env["TOKEN"];
 
 export function getAuthHeaders(): Headers {
-  return new Headers({
-    Authorization: `token ${TOKEN}`,
+  const headers = new Headers({
     Accept: "application/vnd.github.v3+json",
   });
+
+  if (TOKEN) {
+    headers.append("Authorization", `token ${TOKEN}`);
+  }
+
+  return headers;
 }
 
 export async function fetchGithubAPI(
   url: string,
-  options?: RequestInit,
+  options?: RequestInit
 ): Promise<Response> {
   if (!options) options = {};
   if (!options.headers) options.headers = new Headers();
@@ -32,7 +37,7 @@ export async function fetchGithubAPI(
 
 export async function fetchGithubAPIPaginated(
   url: string,
-  options?: RequestInit,
+  options?: RequestInit
 ): Promise<any[]> {
   const allResults: any[] = [];
   let page = 1;
@@ -45,8 +50,9 @@ export async function fetchGithubAPIPaginated(
     const response = await fetchGithubAPI(paginatedUrl, options);
 
     if (response.status !== 200) {
+      const { message } = await response.json();
       throw new Error(
-        `Failed to fetch ${paginatedUrl}. Status: ${response.status}`,
+        `Looks like the data could not be fetched for the URL \n\n${paginatedUrl} \n\nHere is what Github says: \n   ${message}`
       );
     }
 
